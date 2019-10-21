@@ -1,0 +1,5 @@
+R = input("请输入圆的半径：")
+print(type(R))
+r = eval(R)
+print(type(r))
+print("圆的面积：", r * r * 3.1415926)
