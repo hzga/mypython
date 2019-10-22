@@ -3,4 +3,4 @@ weight = float(input("请输入苹果的重量："))
 money = price * weight
 print("总价：",money)
 discount = float(input("请输入折扣率："))
-money = print("折扣价为：",money * discount)
+print("折扣价为：",money * discount)
