@@ -1,0 +1,87 @@
+#获取中国每天的汇总统计数据
+import requests
+import re
+import json
+import openpyxl
+import time
+import pymssql
+import time 
+
+lastUpdateTime=''#更新时间
+data_china = []#国家统计数据
+data_chinatimeline=[]#国家按时间统计数据
+
+
+Get_City_V2=r"https://view.inews.qq.com/g2/getOnsInfo?name=disease_h5&callback"#地区数据2
+
+def GetHtmlText(url):
+    try:
+        res = requests.get(url,timeout = 30)
+        res.raise_for_status()
+        res.encoding = res.apparent_encoding
+        return res.text
+    except:
+        return "Error"
+
+City_json= GetHtmlText(Get_City_V2)
+City_Data = json.loads(City_json)
+City_Data = City_Data["data"]
+
+def GetCityData(CitysJson):#获取精确信息，返回成员长度
+  
+    global lastUpdateTime#更新时间
+
+    global data_china#国家统计数据
+    data = json.loads(CitysJson)
+    lastUpdateTime = data.get('lastUpdateTime') #更新时间
+    #获取每天汇总信息
+    chinaDayList=data.get('chinaDayList') #全国每天汇总信息
+    chinaLen=len(chinaDayList)
+    #获取按时间全国统计数据
+    chinaTotal=data.get('chinaTotal')
+    chinaTotalLen=len(chinaTotal)
+
+
+    #第一次取全部数据
+    for chinaIndex in range(0,chinaLen):
+      chinadata= chinaDayList[chinaIndex]
+      data_china.append((chinadata['date'],int(chinadata['confirm']),int(chinadata['suspect']),int(chinadata['dead']),int(chinadata['heal'])))
+
+    data_china.append((chinadata['date'],chinadata['date'],int(chinadata['confirm']),int(chinadata['suspect']),int(chinadata['dead']),int(chinadata['heal'])))
+
+    #获取全国时间线数据
+    data_chinatimeline.append((int(chinaTotal['confirm']),int(chinaTotal['suspect']),int(chinaTotal['dead']),int(chinaTotal['heal']),lastUpdateTime,int(chinaTotal['confirm']),int(chinaTotal['suspect']),int(chinaTotal['dead']),int(chinaTotal['heal'])))
+
+GetCityData(City_Data)
+#写入数据
+ #连接数据库
+server = ""#服务器名称
+user = ""#用户名
+password = ""#密码
+database = ""#数据库名称
+conn = pymssql.connect(server, user, password, database)
+cursor = conn.cursor()
+if not cursor:
+    raise(NameError,"连接数据库失败")
+else:
+    print('OK')
+
+sql_china="if not exists(select * from SARI_ChinaSta where sdate=%s) insert into SARI_ChinaSta ([sdate],[sconfirm],[ssuspect],[sdead],[sheal]) VALUES (%s,%d,%d,%d,%d)"
+cursor.executemany(sql_china, data_china)
+
+#写入时间线数据
+sql_chinaLine="if not exists(select * from SARI_CTLine where sconfirm=%s and  ssuspect=%s and sdead=%s and sheal=%s) insert into SARI_CTLine ([lastUpdateTime],[sconfirm],[ssuspect],[sdead],[sheal]) VALUES (%s,%d,%d,%d,%d)"
+cursor.executemany(sql_chinaLine, data_chinatimeline)
+
+# 如果没有指定autocommit属性为True的话就需要调用commit()方法
+conn.commit()
+print(time,'写入统计数据成功')
+conn.close()#关闭数据库
+#写入日志
+f = "log_getchina.txt"
+with open(f,"a") as file:   #只需要将之前的”w"改为“a"即可，代表追加内容
+    file.write("执行时间:"+time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))+"\n")
+
+
+
+
