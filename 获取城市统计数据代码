@@ -1,0 +1,152 @@
+#获取城市统计数据v2.0
+import requests
+import re
+import json
+import openpyxl
+import time
+import pymssql
+import time 
+
+lastUpdateTime=''#更新时间
+country =[] #国家
+area = []#省市
+city = []#城市
+today_dead = []#死亡人数
+today_confirm = []#确诊人数
+today_suspect = []#疑似人数
+today_heal = []#治愈人数
+total_dead = []#死亡人数
+total_confirm = []#确诊人数
+total_suspect = []#疑似人数
+total_heal = []#治愈人数
+
+data_china = []#国家统计数据
+
+
+Get_City_V2=r"https://view.inews.qq.com/g2/getOnsInfo?name=disease_h5&callback"#地区数据2
+
+def GetHtmlText(url):
+    try:
+        res = requests.get(url,timeout = 30)
+        res.raise_for_status()
+        res.encoding = res.apparent_encoding
+        return res.text
+    except:
+        return "Error"
+
+City_json= GetHtmlText(Get_City_V2)
+City_Data = json.loads(City_json)
+City_Data = City_Data["data"]
+#City_Data = re.findall(r"{[^}]+}",City_Data)#NewsJson
+
+def GetCityData(CitysJson):#获取精确信息，返回成员长度
+    global country # 国家
+    global area # 城镇
+    global city # 城市
+    global today_dead #死亡人数
+    global today_confirm #确诊人数
+    global today_suspect #疑似人数
+    global today_heal #治愈人数
+    global total_dead #死亡人数
+    global total_confirm #确诊人数
+    global total_suspect #疑似人数
+    global total_heal #治愈人数
+    global lastUpdateTime#更新时间
+
+
+    data = json.loads(CitysJson)
+    areaTree= data.get('areaTree') #地区统计数据
+    lastUpdateTime = data.get('lastUpdateTime') #更新时间
+    #记录全国汇总数据
+
+    #遍历数据
+    i = len(areaTree)#获取json数据有多少个成员
+
+    for j in range(0,i):
+       citydata = areaTree[j]#一级所有数据
+       cname=citydata.get('name')#一级国家名
+       fcity=citydata.get('children')#省市二级
+       if(fcity!=None):#有省市一级的
+           fcount=len(fcity)
+           for findex in range(0,fcount):
+                fcitydata = fcity[findex]#二级所有数据
+                fname=fcitydata.get('name')#二级省市名字
+                scity=fcitydata.get('children')#地区三级
+                if(scity!=None):#有地区一级的
+                     scount=len(scity)
+                     for sindex in range(0,scount):
+                         scitydata =scity[sindex]#三级所有数据
+                         sname=scitydata.get('name')#二级省市名字
+                         country.append (cname)
+                         area.append (fname)
+                         city.append (sname)
+                         today_dead.append (scitydata['today']['dead'])
+                         today_confirm.append (scitydata['today']['confirm'])
+                         today_suspect.append (scitydata['today']['suspect'])
+                         today_heal.append (scitydata['today']['heal'])
+                         total_dead.append (scitydata['total']['dead'])
+                         total_confirm.append (scitydata['total']['confirm'])
+                         total_suspect.append (scitydata['total']['suspect'])
+                         total_heal.append (scitydata['total']['heal'])
+                else:#没有地区一级的
+                    country.append (cname)
+                    area.append (fname)
+                    city.append (fname)
+                    today_dead.append (fcitydata['today']['dead'])
+                    today_confirm.append (fcitydata['today']['confirm'])
+                    today_suspect.append (fcitydata['today']['suspect'])
+                    today_heal.append (fcitydata['today']['heal'])
+                    total_dead.append (fcitydata['total']['dead'])
+                    total_confirm.append (fcitydata['total']['confirm'])
+                    total_suspect.append (fcitydata['total']['suspect'])
+                    total_heal.append (fcitydata['total']['heal'])
+       else:#国家级别的数据
+          country.append (cname)
+          area.append (cname)
+          city.append (cname)
+          today_dead.append (citydata['today']['dead'])
+          today_confirm.append (citydata['today']['confirm'])
+          today_suspect.append (citydata['today']['suspect'])
+          today_heal.append (citydata['today']['heal'])
+          total_dead.append (citydata['total']['dead'])
+          total_confirm.append (citydata['total']['confirm'])
+          total_suspect.append (citydata['total']['suspect'])
+          total_heal.append (citydata['total']['heal'])
+    return i    
+
+GetCityData(City_Data)
+length=len(country)
+#写入数据
+data_xj = []#城市统计数据
+for n in range(0,length):
+      data_xj.append((lastUpdateTime,country[n],area[n],city[n],country[n],area[n],city[n],today_dead[n],today_confirm[n],today_suspect[n],today_heal[n],
+                      total_dead[n],total_confirm[n],total_suspect[n],total_heal[n],lastUpdateTime))
+
+ #连接数据库
+server = ""#服务器名称
+user = ""#用户名
+password = ""#密码
+database = ""#数据库名称
+conn = pymssql.connect(server, user, password, database)
+cursor = conn.cursor()
+if not cursor:
+    raise(NameError,"连接数据库失败")
+else:
+    print('OK')
+
+sql_xj = "if not exists(select * from SARI_detail where lastUpdateTime=%s and cname=%s and fname=%s and sname=%s) INSERT INTO SARI_detail ([cname],[fName],[sName],[today_dead],[today_confirm],[today_suspect],[today_heal],[total_dead],[total_confirm],[total_suspect],[total_heal],[lastUpdateTime]) VALUES (%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%s)"
+cursor.executemany(sql_xj, data_xj)
+
+
+# 如果没有指定autocommit属性为True的话就需要调用commit()方法
+conn.commit()
+print(time,'写入统计数据成功')
+conn.close()#关闭数据库
+#写入日志
+f = "log_getcityv2.txt"
+with open(f,"a") as file:   #只需要将之前的”w"改为“a"即可，代表追加内容
+    file.write("执行时间:"+time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))+"\n")
+
+
+
+
